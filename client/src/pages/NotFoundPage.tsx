@@ -3,22 +3,30 @@ import { HomeIcon } from '@heroicons/react/24/outline';
 
 const NotFoundPage = () => {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8">
-      <div className="text-center">
-        <h1 className="text-6xl font-bold text-primary-600">404</h1>
-        <h2 className="mt-4 text-3xl font-bold text-gray-900">Page non trouvée</h2>
-        <p className="mt-2 text-lg text-gray-600">
-          Désolé, nous n'avons pas pu trouver la page que vous recherchez.
-        </p>
-        <div className="mt-6">
-          <Link
-            to="/"
-            className="btn btn-primary inline-flex items-center"
-          >
-            <HomeIcon className="mr-2 h-5 w-5" aria-hidden="true" />
-            Retour à l'accueil
-          </Link>
-        </div>
+    <div className="min-h-full px-4 py-16 sm:px-6 sm:py-24 md:grid md:place-items-center lg:px-8">
+      <div className="max-w-max mx-auto">
+        <main className="sm:flex">
+          <p className="text-4xl font-extrabold text-primary-600 sm:text-5xl">404</p>
+          <div className="sm:ml-6">
+            <div className="sm:border-l sm:border-gray-200 sm:pl-6">
+              <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight sm:text-5xl">
+                Page non trouvée
+              </h1>
+              <p className="mt-1 text-base text-gray-500">
+                La page que vous recherchez n'existe pas ou a été déplacée.
+              </p>
+            </div>
+            <div className="mt-10 flex space-x-3 sm:border-l sm:border-transparent sm:pl-6">
+              <Link
+                to="/"
+                className="btn btn-primary"
+              >
+                <HomeIcon className="-ml-1 mr-2 h-5 w-5" aria-hidden="true" />
+                Retour à l'accueil
+              </Link>
+            </div>
+          </div>
+        </main>
       </div>
     </div>
   );
