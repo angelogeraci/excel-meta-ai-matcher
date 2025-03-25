@@ -1,0 +1,26 @@
+{
+  "name": "excel-meta-ai-matcher",
+  "version": "1.0.0",
+  "description": "Application web permettant de traiter des fichiers Excel et de les matcher avec l'API Meta Marketing",
+  "main": "index.js",
+  "scripts": {
+    "start": "cd server && npm start",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install",
+    "build": "cd client && npm run build"
+  },
+  "keywords": [
+    "excel",
+    "meta",
+    "ai",
+    "react",
+    "node"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
