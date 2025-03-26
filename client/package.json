@@ -1,7 +1,7 @@
 {
   "name": "excel-meta-ai-matcher-client",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,40 +10,31 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@headlessui/react": "^1.7.18",
-    "@heroicons/react": "^2.1.1",
-    "axios": "^1.6.7",
-    "chart.js": "^4.4.1",
-    "d3": "^7.8.5",
-    "date-fns": "^3.3.1",
-    "js-cookie": "^3.0.5",
+    "@headlessui/react": "^1.7.17",
+    "@heroicons/react": "^2.0.18",
+    "axios": "^1.6.5",
     "react": "^18.2.0",
-    "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.2.0",
-    "react-dropzone": "^14.2.3",
     "react-hot-toast": "^2.4.1",
     "react-query": "^3.39.3",
-    "react-router-dom": "^6.22.2",
-    "react-table": "^7.8.0",
-    "recharts": "^2.10.4",
-    "xlsx": "^0.18.5"
+    "react-router-dom": "^6.21.1",
+    "react-table": "^7.8.0"
   },
   "devDependencies": {
-    "@types/d3": "^7.4.3",
-    "@types/js-cookie": "^3.0.6",
-    "@types/react": "^18.2.56",
-    "@types/react-dom": "^18.2.19",
-    "@types/react-table": "^7.7.18",
-    "@typescript-eslint/eslint-plugin": "^7.0.2",
-    "@typescript-eslint/parser": "^7.0.2",
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "@types/react-table": "^7.7.19",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
     "@vitejs/plugin-react": "^4.2.1",
-    "autoprefixer": "^10.4.17",
+    "autoprefixer": "^10.4.16",
     "eslint": "^8.56.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
-    "postcss": "^8.4.35",
-    "tailwindcss": "^3.4.1",
-    "typescript": "^5.2.2",
-    "vite": "^5.1.4"
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.10"
   }
 }
