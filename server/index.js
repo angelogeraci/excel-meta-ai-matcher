@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs');
+const { protect } = require('./middleware/auth');
 
 // Charger les variables d'environnement
 dotenv.config();
@@ -13,6 +14,12 @@ dotenv.config();
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
+}
+
+// Créer le répertoire d'exportation s'il n'existe pas
+const exportsDir = path.join(__dirname, 'exports');
+if (!fs.existsSync(exportsDir)) {
+  fs.mkdirSync(exportsDir);
 }
 
 // Initialiser l'application Express
@@ -28,10 +35,13 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
-// Routes
-app.use('/api/files', require('./routes/fileRoutes'));
-app.use('/api/meta', require('./routes/metaRoutes'));
-app.use('/api/ai', require('./routes/aiRoutes'));
+// Routes publiques
+app.use('/api/auth', require('./routes/authRoutes'));
+
+// Routes protégées (nécessitent une authentification)
+app.use('/api/files', protect, require('./routes/fileRoutes'));
+app.use('/api/meta', protect, require('./routes/metaRoutes'));
+app.use('/api/ai', protect, require('./routes/aiRoutes'));
 
 // Route par défaut pour la vérification de l'API
 app.get('/api', (req, res) => {
