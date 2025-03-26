@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
-import * as XLSX from 'xlsx';
+import xlsx from 'xlsx';
 import { FileModel } from '../models/File';
 
 const router = express.Router();
@@ -13,7 +13,7 @@ const storage = multer.diskStorage({
     const uploadDir = path.join(process.cwd(), 'uploads');
     fs.mkdir(uploadDir, { recursive: true })
       .then(() => cb(null, uploadDir))
-      .catch(err => cb(err, uploadDir));
+      .catch((err) => cb(err, uploadDir));
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -28,7 +28,7 @@ const upload = multer({
     if (ext === '.xlsx' || ext === '.xls' || ext === '.csv') {
       return cb(null, true);
     }
-    cb(new Error('Type de fichier non supporté'));
+    cb(new Error('Seuls les fichiers Excel et CSV sont autorisés'));
   }
 });
 
@@ -36,22 +36,20 @@ const upload = multer({
 router.post('/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: 'Aucun fichier uploadé' });
+      return res.status(400).json({ message: 'Aucun fichier téléchargé' });
     }
 
     // Lire le fichier
-    const workbook = XLSX.readFile(req.file.path);
+    const workbook = xlsx.readFile(req.file.path);
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     
-    // Convertir en JSON
-    const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-    
-    // Extraire les colonnes
+    // Convertir en JSON pour obtenir les colonnes et le nombre de lignes
+    const data = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
     const columns = data[0] as string[];
     const rowCount = data.length - 1;
 
-    // Créer un enregistrement de fichier
+    // Créer un enregistrement de fichier dans la base de données
     const fileRecord = new FileModel({
       name: req.file.filename,
       originalName: req.file.originalname,
@@ -65,7 +63,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     await fileRecord.save();
 
     res.status(201).json({
-      message: 'Fichier uploadé avec succès',
+      message: 'Fichier téléchargé avec succès',
       file: {
         id: fileRecord._id,
         name: fileRecord.originalName,
@@ -74,19 +72,20 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Erreur lors de l\'upload du fichier:', error);
+    console.error('Erreur lors du téléchargement du fichier:', error);
     res.status(500).json({ 
-      message: 'Erreur lors du traitement du fichier', 
-      error: error instanceof Error ? error.message : 'Erreur inconnue' 
+      message: 'Erreur lors du téléchargement du fichier',
+      error: error instanceof Error ? error.message : 'Erreur inconnue'
     });
   }
 });
 
-// Route pour obtenir les détails d'un fichier
+// Route pour récupérer les détails d'un fichier
 router.get('/:fileId', async (req, res) => {
   try {
-    const file = await FileModel.findById(req.params.fileId);
-    
+    const fileId = req.params.fileId;
+    const file = await FileModel.findById(fileId);
+
     if (!file) {
       return res.status(404).json({ message: 'Fichier non trouvé' });
     }
@@ -100,10 +99,10 @@ router.get('/:fileId', async (req, res) => {
       status: file.status
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération du fichier:', error);
+    console.error('Erreur lors de la récupération des détails du fichier:', error);
     res.status(500).json({ 
-      message: 'Erreur lors de la récupération du fichier', 
-      error: error instanceof Error ? error.message : 'Erreur inconnue' 
+      message: 'Erreur lors de la récupération des détails du fichier',
+      error: error instanceof Error ? error.message : 'Erreur inconnue'
     });
   }
 });
@@ -113,7 +112,7 @@ router.get('/', async (req, res) => {
   try {
     const files = await FileModel.find().sort({ uploadedAt: -1 });
     
-    const formattedFiles = files.map(file => ({
+    const filesResponse = files.map(file => ({
       id: file._id,
       name: file.originalName,
       columns: file.columns,
@@ -122,12 +121,12 @@ router.get('/', async (req, res) => {
       status: file.status
     }));
 
-    res.json(formattedFiles);
+    res.json(filesResponse);
   } catch (error) {
-    console.error('Erreur lors de la liste des fichiers:', error);
+    console.error('Erreur lors de la récupération des fichiers:', error);
     res.status(500).json({ 
-      message: 'Erreur lors de la récupération des fichiers', 
-      error: error instanceof Error ? error.message : 'Erreur inconnue' 
+      message: 'Erreur lors de la récupération des fichiers',
+      error: error instanceof Error ? error.message : 'Erreur inconnue'
     });
   }
 });
@@ -135,21 +134,22 @@ router.get('/', async (req, res) => {
 // Route pour supprimer un fichier
 router.delete('/:fileId', async (req, res) => {
   try {
-    const file = await FileModel.findByIdAndDelete(req.params.fileId);
-    
+    const fileId = req.params.fileId;
+    const file = await FileModel.findByIdAndDelete(fileId);
+
     if (!file) {
       return res.status(404).json({ message: 'Fichier non trouvé' });
     }
 
-    // Supprimer le fichier du système de fichiers
+    // Supprimer le fichier physique
     await fs.unlink(file.path);
 
     res.json({ message: 'Fichier supprimé avec succès' });
   } catch (error) {
     console.error('Erreur lors de la suppression du fichier:', error);
     res.status(500).json({ 
-      message: 'Erreur lors de la suppression du fichier', 
-      error: error instanceof Error ? error.message : 'Erreur inconnue' 
+      message: 'Erreur lors de la suppression du fichier',
+      error: error instanceof Error ? error.message : 'Erreur inconnue'
     });
   }
 });
