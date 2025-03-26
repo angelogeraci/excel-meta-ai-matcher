@@ -3,7 +3,6 @@ const fs = require('fs');
 const path = require('path');
 const File = require('../models/File');
 const MatchResult = require('../models/MatchResult');
-const { Worker } = require('worker_threads');
 
 /**
  * Service qui gère les opérations sur les fichiers Excel
@@ -167,98 +166,8 @@ class ExcelService {
     }
   }
 
-  /**
-   * Lit les données d'une colonne spécifique d'un fichier Excel optimisé pour les fichiers volumineux
-   * en utilisant une approche par lots
-   * 
-   * @param {string} fileId - ID du fichier dans la base de données
-   * @param {string} columnName - Nom de la colonne à extraire
-   * @returns {Promise<void>}
-   */
-  async processColumnData(fileId, columnName) {
-    try {
-      // Récupérer le fichier
-      const file = await File.findById(fileId);
-      
-      if (!file) {
-        throw new Error(`Fichier avec ID ${fileId} non trouvé.`);
-      }
-      
-      if (!file.columns.includes(columnName)) {
-        throw new Error(`Colonne "${columnName}" non trouvée dans le fichier.`);
-      }
-      
-      // Mettre à jour le statut du fichier
-      file.status = 'processing';
-      file.processingStartedAt = new Date();
-      await file.save();
-      
-      // Traiter les données par lots pour éviter la surcharge de mémoire
-      const BATCH_SIZE = 1000; // Nombre de lignes à traiter par lot
-      let processedRows = 0;
-      let totalBatches = Math.ceil(file.rowCount / BATCH_SIZE);
-      
-      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-        const startRow = batchIndex * BATCH_SIZE;
-        const endRow = Math.min((batchIndex + 1) * BATCH_SIZE, file.rowCount);
-        
-        // Lire un lot de données
-        const batchData = await this.readExcelBatch(file.path, startRow, endRow);
-        
-        // Filtrer les données pour obtenir uniquement les valeurs de la colonne sélectionnée
-        const columnValues = batchData
-          .map((row, index) => ({
-            value: row[columnName],
-            rowIndex: startRow + index + 1 // +1 car les en-têtes sont déjà exclus
-          }))
-          .filter(item => item.value !== undefined && item.value !== null && item.value !== '');
-        
-        // Enregistrer les résultats dans la base de données par petits lots
-        // pour éviter les problèmes de mémoire
-        const savedBatch = await Promise.all(
-          columnValues.map(item => {
-            return new MatchResult({
-              file: file._id,
-              originalValue: item.value,
-              rowIndex: item.rowIndex,
-              status: 'pending'
-            }).save();
-          })
-        );
-        
-        // Mettre à jour le compteur de lignes traitées
-        processedRows += savedBatch.length;
-        
-        // Mettre à jour le statut du fichier avec la progression
-        file.status = 'processing';
-        await file.save();
-      }
-      
-      // Une fois terminé, marquer le fichier comme traité
-      file.status = 'completed';
-      file.processingCompletedAt = new Date();
-      await file.save();
-      
-      return true;
-    } catch (error) {
-      console.error('Erreur lors du traitement des données de colonne:', error);
-      
-      // En cas d'erreur, mettre à jour le statut du fichier
-      try {
-        const file = await File.findById(fileId);
-        if (file) {
-          file.status = 'error';
-          file.errorMessage = error.message;
-          await file.save();
-        }
-      } catch (updateError) {
-        console.error('Erreur lors de la mise à jour du statut du fichier:', updateError);
-      }
-      
-      throw error;
-    }
-  }
-  
+  // Méthodes supplémentaires seront ajoutées dans des mises à jour séparées
+
   /**
    * Lit un lot de données d'un fichier Excel
    * 
@@ -284,3 +193,28 @@ class ExcelService {
       throw error;
     }
   }
+
+  /**
+   * Pour maintenir la compatibilité avec le code existant
+   * @deprecated Utiliser parseExcelFileHeaders à la place
+   */
+  parseExcelFile(filePath) {
+    console.warn('Méthode parseExcelFile dépréciée, utiliser parseExcelFileHeaders à la place');
+    return {
+      columns: [],
+      rowCount: 0,
+      error: 'Méthode dépréciée, utiliser parseExcelFileHeaders'
+    };
+  }
+
+  /**
+   * Pour maintenir la compatibilité avec le code existant
+   * @deprecated Utiliser processColumnData à la place
+   */
+  extractColumnData(filePath, columnName) {
+    console.warn('Méthode extractColumnData dépréciée, utiliser processColumnData à la place');
+    return [];
+  }
+}
+
+module.exports = new ExcelService();
