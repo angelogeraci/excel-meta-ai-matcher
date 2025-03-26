@@ -1,87 +1,14 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from 'react-query';
+import { useQuery, useMutation } from 'react-query';
 import toast from 'react-hot-toast';
 import { ArrowLeftIcon, ArrowDownTrayIcon, TrashIcon } from '@heroicons/react/24/outline';
-import { ExcelFile, MatchResult, MetaSuggestion, ExcelColumnSelection, SearchFilters } from '@/types';
+import { ExcelFile, MatchResult, SearchFilters, ExportOptions } from '@/types';
 import ColumnSelector from '@/components/results/ColumnSelector';
 import ResultsTable from '@/components/results/ResultsTable';
 import ResultsFilters from '@/components/results/ResultsFilters';
 import ResultsExport from '@/components/results/ResultsExport';
-
-// Services fictifs (à remplacer par de vraies implémentations)
-const fetchFileDetails = async (fileId: string): Promise<ExcelFile> => {
-  // Simulation d'une requête API
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        id: fileId,
-        name: 'campagne-facebook.xlsx',
-        uploadedAt: '2025-03-20T10:30:00Z',
-        columns: ['Campagne', 'Budget', 'Mots-clés', 'Audience', 'Objectif', 'Placement'],
-        rowCount: 145,
-        status: 'completed'
-      });
-    }, 500);
-  });
-};
-
-const fetchResults = async (fileId: string, columnName?: string): Promise<MatchResult[]> => {
-  // Simulation d'une requête API
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      if (!columnName) {
-        resolve([]);
-        return;
-      }
-      
-      resolve([
-        {
-          id: '1',
-          fileId,
-          originalValue: 'Marketing Digital',
-          metaSuggestions: [
-            { id: 'ms1', value: 'Digital Marketing', audience: { size: 123000000, spec: {} }, score: 92, isSelected: true },
-            { id: 'ms2', value: 'Online Marketing', audience: { size: 98000000, spec: {} }, score: 85, isSelected: false },
-            { id: 'ms3', value: 'Internet Marketing', audience: { size: 78000000, spec: {} }, score: 70, isSelected: false }
-          ],
-          selectedSuggestion: { id: 'ms1', value: 'Digital Marketing', audience: { size: 123000000, spec: {} }, score: 92, isSelected: true },
-          matchScore: 92,
-          status: 'processed',
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: '2',
-          fileId,
-          originalValue: 'Réseaux Sociaux',
-          metaSuggestions: [
-            { id: 'ms4', value: 'Social Media', audience: { size: 156000000, spec: {} }, score: 94, isSelected: true },
-            { id: 'ms5', value: 'Social Networks', audience: { size: 142000000, spec: {} }, score: 88, isSelected: false },
-            { id: 'ms6', value: 'Social Platforms', audience: { size: 67000000, spec: {} }, score: 65, isSelected: false }
-          ],
-          selectedSuggestion: { id: 'ms4', value: 'Social Media', audience: { size: 156000000, spec: {} }, score: 94, isSelected: true },
-          matchScore: 94,
-          status: 'processed',
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: '3',
-          fileId,
-          originalValue: 'E-commerce',
-          metaSuggestions: [
-            { id: 'ms7', value: 'Online Shopping', audience: { size: 189000000, spec: {} }, score: 88, isSelected: true },
-            { id: 'ms8', value: 'E-commerce', audience: { size: 132000000, spec: {} }, score: 95, isSelected: false },
-            { id: 'ms9', value: 'Internet Retail', audience: { size: 89000000, spec: {} }, score: 72, isSelected: false }
-          ],
-          selectedSuggestion: { id: 'ms7', value: 'Online Shopping', audience: { size: 189000000, spec: {} }, score: 88, isSelected: true },
-          matchScore: 88,
-          status: 'processed',
-          createdAt: new Date().toISOString()
-        }
-      ]);
-    }, 800);
-  });
-};
+import { apiService } from '@/services/apiService';
 
 const ResultsPage = () => {
   const { fileId } = useParams<{ fileId: string }>();
@@ -92,25 +19,76 @@ const ResultsPage = () => {
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   
   // Charger les détails du fichier
-  const { data: fileDetails, isLoading: isLoadingFile } = useQuery(
+  const { 
+    data: fileDetails, 
+    isLoading: isLoadingFile, 
+    error: fileError 
+  } = useQuery<ExcelFile, Error>(
     ['fileDetails', fileId],
-    () => fetchFileDetails(fileId as string),
+    () => apiService.fetchFileDetails(fileId as string),
     {
       enabled: !!fileId,
-      onError: () => {
-        toast.error('Erreur lors du chargement des détails du fichier');
+      onError: (error) => {
+        toast.error(`Erreur lors du chargement des détails du fichier : ${error.message}`);
         navigate('/');
       }
     }
   );
   
   // Charger les résultats
-  const { data: results, isLoading: isLoadingResults } = useQuery(
+  const { 
+    data: results, 
+    isLoading: isLoadingResults, 
+    error: resultsError 
+  } = useQuery<MatchResult[], Error>(
     ['results', fileId, selectedColumn],
-    () => fetchResults(fileId as string, selectedColumn),
+    () => apiService.fetchResults(fileId as string, selectedColumn as string),
     {
       enabled: !!fileId && !!selectedColumn,
-      onError: () => toast.error('Erreur lors du chargement des résultats')
+      onError: (error) => {
+        toast.error(`Erreur lors du chargement des résultats : ${error.message}`);
+      }
+    }
+  );
+  
+  // Mutation pour exporter les résultats
+  const exportMutation = useMutation(
+    (options: ExportOptions) => apiService.exportResults(fileId as string, options),
+    {
+      onSuccess: () => {
+        toast.success('Export réussi');
+      },
+      onError: (error: Error) => {
+        toast.error(`Erreur lors de l'export : ${error.message}`);
+      }
+    }
+  );
+
+  // Mutation pour supprimer des résultats
+  const deleteMutation = useMutation(
+    (resultIds: string[]) => apiService.deleteResults(resultIds),
+    {
+      onSuccess: () => {
+        toast.success(`${selectedRows.length} résultat(s) supprimé(s)`);
+        setSelectedRows([]);
+      },
+      onError: (error: Error) => {
+        toast.error(`Erreur lors de la suppression : ${error.message}`);
+      }
+    }
+  );
+
+  // Mutation pour mettre à jour une suggestion
+  const updateSuggestionMutation = useMutation(
+    ({ resultId, suggestionId }: { resultId: string, suggestionId: string }) => 
+      apiService.updateSuggestion(resultId, suggestionId),
+    {
+      onSuccess: () => {
+        toast.success('Suggestion mise à jour');
+      },
+      onError: (error: Error) => {
+        toast.error(`Erreur lors de la mise à jour : ${error.message}`);
+      }
     }
   );
   
@@ -119,23 +97,23 @@ const ResultsPage = () => {
     if (!results) return [];
     
     return results.filter(result => {
-      // Filtrer par texte de recherche
-      if (filters.query && !result.originalValue.toLowerCase().includes(filters.query.toLowerCase()) && 
-          !result.selectedSuggestion.value.toLowerCase().includes(filters.query.toLowerCase())) {
+      // Filtres de recherche
+      if (filters.query && 
+        !result.originalValue.toLowerCase().includes(filters.query.toLowerCase()) && 
+        !result.selectedSuggestion.value.toLowerCase().includes(filters.query.toLowerCase())) {
         return false;
       }
       
-      // Filtrer par score minimum
+      // Filtres de score
       if (filters.minScore !== undefined && result.matchScore < filters.minScore) {
         return false;
       }
       
-      // Filtrer par score maximum
       if (filters.maxScore !== undefined && result.matchScore > filters.maxScore) {
         return false;
       }
       
-      // Filtrer par statut
+      // Filtre de statut
       if (filters.status && filters.status !== 'all' && result.status !== filters.status) {
         return false;
       }
@@ -158,20 +136,15 @@ const ResultsPage = () => {
   
   const handleDeleteSelected = () => {
     if (selectedRows.length === 0) return;
-    
-    // Dans une implémentation réelle, vous appelleriez votre API pour supprimer les lignes
-    toast.success(`${selectedRows.length} ligne(s) supprimée(s)`);
-    setSelectedRows([]);
+    deleteMutation.mutate(selectedRows);
   };
   
-  const handleExport = () => {
-    // Dans une implémentation réelle, vous appelleriez votre API pour exporter les résultats
-    toast.success('Export réussi !');
+  const handleExport = (options: ExportOptions) => {
+    exportMutation.mutate(options);
   };
   
   const handleSuggestionChange = (resultId: string, suggestionId: string) => {
-    // Dans une implémentation réelle, vous mettriez à jour votre API
-    toast.success('Suggestion mise à jour');
+    updateSuggestionMutation.mutate({ resultId, suggestionId });
   };
   
   const isLoading = isLoadingFile || isLoadingResults;
@@ -201,6 +174,7 @@ const ResultsPage = () => {
             <button
               onClick={handleDeleteSelected}
               className="btn btn-danger mr-2"
+              disabled={deleteMutation.isLoading}
             >
               <TrashIcon className="h-5 w-5 mr-1" />
               Supprimer ({selectedRows.length})
@@ -208,15 +182,31 @@ const ResultsPage = () => {
           )}
           
           <button
-            onClick={handleExport}
+            onClick={() => handleExport({ 
+              format: 'xlsx', 
+              includeScores: true, 
+              includeAllSuggestions: false 
+            })}
             className="btn btn-primary"
-            disabled={!results || results.length === 0}
+            disabled={!results || results.length === 0 || exportMutation.isLoading}
           >
             <ArrowDownTrayIcon className="h-5 w-5 mr-1" />
             Exporter
           </button>
         </div>
       </div>
+      
+      {fileError && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          {fileError.message}
+        </div>
+      )}
+
+      {resultsError && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          {resultsError.message}
+        </div>
+      )}
       
       {!selectedColumn && fileDetails ? (
         <div className="bg-white shadow rounded-lg p-6">
@@ -239,7 +229,9 @@ const ResultsPage = () => {
                 />
               </div>
               <div>
-                <ResultsExport onExport={handleExport} />
+                <ResultsExport 
+                  onExport={handleExport} 
+                />
               </div>
             </div>
           )}
