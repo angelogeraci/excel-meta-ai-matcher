@@ -4,6 +4,9 @@ const path = require('path');
 const File = require('../models/File');
 const MatchResult = require('../models/MatchResult');
 
+// Import du service de traitement
+let excelProcessingService = null;
+
 /**
  * Service qui gère les opérations sur les fichiers Excel
  * Optimisé pour les fichiers volumineux
@@ -166,8 +169,6 @@ class ExcelService {
     }
   }
 
-  // Méthodes supplémentaires seront ajoutées dans des mises à jour séparées
-
   /**
    * Lit un lot de données d'un fichier Excel
    * 
@@ -195,16 +196,44 @@ class ExcelService {
   }
 
   /**
+   * Délégation du traitement des colonnes au service dédié pour les fichiers volumineux
+   * 
+   * @param {string} fileId - ID du fichier dans la base de données
+   * @param {string} columnName - Nom de la colonne à traiter
+   * @returns {Promise<boolean>} - Statut de l'opération
+   */
+  async processColumnData(fileId, columnName) {
+    // Charger le service de traitement à la demande pour éviter les dépendances circulaires
+    if (!excelProcessingService) {
+      excelProcessingService = require('./excelProcessingService');
+    }
+    
+    return excelProcessingService.processColumnData(fileId, columnName);
+  }
+
+  /**
+   * Délégation de l'export au service dédié pour les fichiers volumineux
+   * 
+   * @param {Array} results - Résultats à exporter
+   * @param {Object} options - Options d'exportation
+   * @returns {Promise<Object>} - Informations sur le fichier exporté
+   */
+  async exportLargeResults(results, options = {}) {
+    // Charger le service de traitement à la demande
+    if (!excelProcessingService) {
+      excelProcessingService = require('./excelProcessingService');
+    }
+    
+    return excelProcessingService.exportLargeResults(results, options);
+  }
+
+  /**
    * Pour maintenir la compatibilité avec le code existant
    * @deprecated Utiliser parseExcelFileHeaders à la place
    */
   parseExcelFile(filePath) {
     console.warn('Méthode parseExcelFile dépréciée, utiliser parseExcelFileHeaders à la place');
-    return {
-      columns: [],
-      rowCount: 0,
-      error: 'Méthode dépréciée, utiliser parseExcelFileHeaders'
-    };
+    return this.parseExcelFileHeaders(filePath);
   }
 
   /**
@@ -213,7 +242,21 @@ class ExcelService {
    */
   extractColumnData(filePath, columnName) {
     console.warn('Méthode extractColumnData dépréciée, utiliser processColumnData à la place');
-    return [];
+    
+    // Implémentation simplifiée pour assurer la compatibilité
+    try {
+      const workbook = XLSX.readFile(filePath);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(worksheet);
+      
+      return data.map((row, index) => ({
+        value: row[columnName],
+        rowIndex: index + 1
+      })).filter(item => item.value !== undefined && item.value !== null && item.value !== '');
+    } catch (error) {
+      console.error('Erreur lors de l\'extraction des données de colonne (méthode dépréciée):', error);
+      return [];
+    }
   }
 }
 
