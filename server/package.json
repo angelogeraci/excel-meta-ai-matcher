@@ -1,32 +1,37 @@
 {
   "name": "excel-meta-ai-matcher-server",
   "version": "1.0.0",
-  "description": "Backend pour l'application Excel Meta AI Matcher",
-  "main": "index.js",
+  "description": "Backend for Excel Meta AI Matcher",
+  "main": "dist/index.js",
+  "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node dist/index.js",
+    "dev": "nodemon src/index.ts",
+    "build": "tsc",
+    "lint": "eslint . --ext .ts"
   },
   "dependencies": {
-    "axios": "^1.6.7",
-    "bcryptjs": "^2.4.3",
+    "axios": "^1.6.5",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.1",
+    "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "express-validator": "^7.0.1",
-    "jsonwebtoken": "^9.0.2",
+    "express-fileupload": "^1.4.3",
     "mongoose": "^8.1.1",
-    "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
-    "openai": "^4.26.0",
-    "uuid": "^9.0.1",
+    "openai": "^4.24.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "nodemon": "^3.0.3"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/express-fileupload": "^1.4.4",
+    "@types/multer": "^1.4.11",
+    "@types/node": "^20.11.16",
+    "@typescript-eslint/eslint-plugin": "^6.20.0",
+    "@typescript-eslint/parser": "^6.20.0",
+    "eslint": "^8.56.0",
+    "nodemon": "^3.0.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
   }
 }
