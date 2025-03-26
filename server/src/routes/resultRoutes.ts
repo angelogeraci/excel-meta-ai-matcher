@@ -1,26 +1,72 @@
 import express from 'express';
-import * as XLSX from 'xlsx';
 import { ResultModel } from '../models/Result';
 import { FileModel } from '../models/File';
-import OpenAI from 'openai';
 import axios from 'axios';
+import OpenAI from 'openai';
 
 const router = express.Router();
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Configuration OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
-// Configuration Meta API
-const metaApiBaseUrl = 'https://graph.facebook.com';
-const metaApiVersion = process.env.META_API_VERSION || 'v18.0';
-
-// Route pour générer des suggestions pour un fichier
-router.post('/:fileId/analyze', async (req, res) => {
+// Helper function pour obtenir les suggestions Meta
+async function getMetaSuggestions(value: string) {
   try {
-    const { fileId } = req.params;
-    const { column } = req.body;
+    // Simulation des suggestions Meta (à remplacer par un vrai appel API)
+    const suggestions = [
+      { 
+        value: value,
+        audience: { 
+          size: Math.floor(Math.random() * 200000000), 
+          spec: {} 
+        },
+        score: Math.floor(Math.random() * 100)
+      },
+      { 
+        value: `Digital ${value}`,
+        audience: { 
+          size: Math.floor(Math.random() * 200000000), 
+          spec: {} 
+        },
+        score: Math.floor(Math.random() * 100)
+      }
+    ];
+
+    return suggestions;
+  } catch (error) {
+    console.error('Erreur lors de la récupération des suggestions Meta:', error);
+    return [];
+  }
+}
+
+// Helper function pour évaluer les suggestions avec OpenAI
+async function evaluateSuggestions(originalValue: string, suggestions: any[]) {
+  try {
+    const prompt = `Évalue la correspondance entre le mot-clé original "${originalValue}" et ces suggestions :
+    ${suggestions.map((s, i) => `${i + 1}. ${s.value}`).join('\n')}
+
+    Réponds uniquement avec un tableau de scores de 0 à 100 pour chaque suggestion, séparés par des virgules.`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: prompt }]
+    });
+
+    const scoresStr = response.choices[0].message.content || '';
+    const scores = scoresStr.split(',').map(s => parseInt(s.trim(), 10));
+
+    return suggestions.map((suggestion, index) => ({
+      ...suggestion,
+      score: scores[index] || suggestion.score
+    }));
+  } catch (error) {
+    console.error('Erreur lors de l\'évaluation des suggestions:', error);
+    return suggestions;
+  }
+}
+
+// Route pour générer des résultats pour une colonne de fichier
+router.post('/generate', async (req, res) => {
+  try {
+    const { fileId, column } = req.body;
 
     // Vérifier que le fichier existe
     const file = await FileModel.findById(fileId);
@@ -28,77 +74,69 @@ router.post('/:fileId/analyze', async (req, res) => {
       return res.status(404).json({ message: 'Fichier non trouvé' });
     }
 
-    // Lire le fichier Excel
-    const workbook = XLSX.readFile(file.path);
+    // Lire le fichier Excel et extraire les valeurs de la colonne
+    const workbook = xlsx.readFile(file.path);
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    
-    // Convertir en JSON
-    const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-    
-    // Trouver l'index de la colonne
-    const columnIndex = (data[0] as string[]).indexOf(column);
-    if (columnIndex === -1) {
-      return res.status(400).json({ message: 'Colonne non trouvée' });
-    }
+    const data = xlsx.utils.sheet_to_json(worksheet);
 
-    // Extraire les valeurs uniques de la colonne
-    const uniqueValues = [...new Set(data.slice(1).map(row => row[columnIndex]))];
-
-    // Générer des suggestions pour chaque valeur unique
+    // Tableau pour stocker les résultats
     const results = [];
 
-    for (const value of uniqueValues) {
-      try {
-        // Obtenir des suggestions Meta Marketing
-        const metaSuggestions = await getMetaMarketingSuggestions(value.toString());
-        
-        // Obtenir un score IA
-        const aiScore = await getAIMatchScore(value.toString(), metaSuggestions);
+    // Traiter chaque ligne
+    for (const row of data) {
+      const originalValue = row[column];
+      if (!originalValue) continue;
 
-        // Sélectionner la meilleure suggestion
-        const bestSuggestion = metaSuggestions.reduce((best, current) => 
-          current.score > best.score ? current : best
-        );
+      // Obtenir des suggestions Meta
+      const metaSuggestions = await getMetaSuggestions(originalValue);
 
-        const result = new ResultModel({
-          file: fileId,
-          column: column,
-          originalValue: value.toString(),
-          metaSuggestions: metaSuggestions,
-          selectedSuggestion: bestSuggestion,
-          matchScore: bestSuggestion.score,
-          status: 'processed'
-        });
+      // Évaluer les suggestions avec OpenAI
+      const evaluatedSuggestions = await evaluateSuggestions(originalValue, metaSuggestions);
 
-        await result.save();
-        results.push(result);
-      } catch (suggestionError) {
-        console.error(`Erreur pour la valeur ${value}:`, suggestionError);
-      }
+      // Sélectionner la meilleure suggestion
+      const bestSuggestion = evaluatedSuggestions.reduce((best, current) => 
+        current.score > best.score ? current : best
+      );
+
+      // Créer un résultat
+      const result = new ResultModel({
+        file: fileId,
+        column: column,
+        originalValue: originalValue,
+        metaSuggestions: evaluatedSuggestions,
+        selectedSuggestion: bestSuggestion,
+        matchScore: bestSuggestion.score,
+        status: 'processed'
+      });
+
+      await result.save();
+      results.push(result);
     }
 
     res.status(201).json({
-      message: 'Analyse terminée',
-      resultsCount: results.length
+      message: `Résultats générés pour la colonne ${column}`,
+      resultCount: results.length
     });
   } catch (error) {
-    console.error('Erreur lors de l\'analyse:', error);
+    console.error('Erreur lors de la génération des résultats:', error);
     res.status(500).json({ 
-      message: 'Erreur lors de l\'analyse du fichier', 
-      error: error instanceof Error ? error.message : 'Erreur inconnue' 
+      message: 'Erreur lors de la génération des résultats',
+      error: error instanceof Error ? error.message : 'Erreur inconnue'
     });
   }
 });
 
-// Route pour récupérer les résultats d'un fichier
+// Route pour récupérer les résultats d'un fichier pour une colonne
 router.get('/:fileId', async (req, res) => {
   try {
     const { fileId } = req.params;
     const { column } = req.query;
 
-    const query: { file: string, column?: string } = { file: fileId };
-    if (column) query.column = column as string;
+    const query: any = { file: fileId };
+    if (column) {
+      query.column = column;
+    }
 
     const results = await ResultModel.find(query);
 
@@ -106,13 +144,13 @@ router.get('/:fileId', async (req, res) => {
   } catch (error) {
     console.error('Erreur lors de la récupération des résultats:', error);
     res.status(500).json({ 
-      message: 'Erreur lors de la récupération des résultats', 
-      error: error instanceof Error ? error.message : 'Erreur inconnue' 
+      message: 'Erreur lors de la récupération des résultats',
+      error: error instanceof Error ? error.message : 'Erreur inconnue'
     });
   }
 });
 
-// Route pour mettre à jour une suggestion
+// Route pour mettre à jour une suggestion pour un résultat
 router.patch('/:resultId/suggestion', async (req, res) => {
   try {
     const { resultId } = req.params;
@@ -123,7 +161,7 @@ router.patch('/:resultId/suggestion', async (req, res) => {
       return res.status(404).json({ message: 'Résultat non trouvé' });
     }
 
-    // Réinitialiser tous les isSelected à false
+    // Réinitialiser les suggestions précédentes
     result.metaSuggestions.forEach(suggestion => {
       suggestion.isSelected = false;
     });
@@ -131,7 +169,7 @@ router.patch('/:resultId/suggestion', async (req, res) => {
     // Sélectionner la nouvelle suggestion
     const selectedSuggestion = result.metaSuggestions.find(s => s.id === suggestionId);
     if (!selectedSuggestion) {
-      return res.status(400).json({ message: 'Suggestion non trouvée' });
+      return res.status(404).json({ message: 'Suggestion non trouvée' });
     }
 
     selectedSuggestion.isSelected = true;
@@ -140,82 +178,41 @@ router.patch('/:resultId/suggestion', async (req, res) => {
 
     await result.save();
 
-    res.json(result);
+    res.json({
+      message: 'Suggestion mise à jour',
+      result
+    });
   } catch (error) {
     console.error('Erreur lors de la mise à jour de la suggestion:', error);
     res.status(500).json({ 
-      message: 'Erreur lors de la mise à jour de la suggestion', 
-      error: error instanceof Error ? error.message : 'Erreur inconnue' 
+      message: 'Erreur lors de la mise à jour de la suggestion',
+      error: error instanceof Error ? error.message : 'Erreur inconnue'
     });
   }
 });
 
-// Fonction pour obtenir des suggestions Meta Marketing
-async function getMetaMarketingSuggestions(value: string) {
+// Route pour supprimer des résultats
+router.delete('/', async (req, res) => {
   try {
-    // Appel à l'API Meta pour obtenir des suggestions
-    const response = await axios.get(`${metaApiBaseUrl}/${metaApiVersion}/search`, {
-      params: {
-        q: value,
-        type: 'adinterest',
-        access_token: process.env.META_API_ACCESS_TOKEN
-      }
+    const { resultIds } = req.body;
+
+    if (!resultIds || resultIds.length === 0) {
+      return res.status(400).json({ message: 'Aucun résultat à supprimer' });
+    }
+
+    const deleteResult = await ResultModel.deleteMany({ _id: { $in: resultIds } });
+
+    res.json({
+      message: `${deleteResult.deletedCount} résultat(s) supprimé(s)`,
+      deletedCount: deleteResult.deletedCount
     });
-
-    // Transformer les résultats
-    return response.data.data.map((interest: any) => ({
-      id: interest.id,
-      value: interest.name,
-      audience: {
-        size: interest.audience_size,
-        spec: {}
-      },
-      score: calculateInterestScore(interest)
-    })).slice(0, 3); // Limiter à 3 suggestions
   } catch (error) {
-    console.error('Erreur API Meta:', error);
-    // Suggestions par défaut en cas d'erreur
-    return [
-      { 
-        id: 'fallback1', 
-        value, 
-        audience: { size: 1000000, spec: {} }, 
-        score: 70 
-      }
-    ];
-  }
-}
-
-// Fonction pour calculer un score pour un intérêt
-function calculateInterestScore(interest: any): number {
-  // Score basé sur la taille de l'audience et d'autres critères
-  const baseScore = Math.min(Math.log(interest.audience_size || 1) * 10, 95);
-  const randomVariation = Math.random() * 5;
-  return Math.round(baseScore + randomVariation);
-}
-
-// Fonction pour obtenir un score IA de correspondance
-async function getAIMatchScore(originalValue: string, suggestions: any[]) {
-  try {
-    const prompt = `
-      Évalue la correspondance entre le mot-clé "${originalValue}" et les suggestions suivantes :
-      ${suggestions.map(s => `- ${s.value}`).join('\n')}
-
-      Réponds uniquement avec un score de correspondance entre 0 et 100.
-    `;
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 10
+    console.error('Erreur lors de la suppression des résultats:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors de la suppression des résultats',
+      error: error instanceof Error ? error.message : 'Erreur inconnue'
     });
-
-    const scoreResponse = completion.choices[0].message.content || '70';
-    return Math.min(Math.max(parseInt(scoreResponse), 0), 100);
-  } catch (error) {
-    console.error('Erreur IA:', error);
-    return 70; // Score par défaut
   }
-}
+});
 
 export default router;
