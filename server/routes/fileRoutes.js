@@ -31,20 +31,33 @@ const fileFilter = (req, file, cb) => {
   const allowedTypes = [
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-excel.sheet.macroEnabled.12'
+    'application/vnd.ms-excel.sheet.macroEnabled.12',
+    // Ajout de types MIME supplémentaires pour une meilleure compatibilité
+    'application/octet-stream', // Certains navigateurs utilisent ce type
+    'application/excel',
+    'application/x-excel',
+    'application/x-msexcel'
   ];
   
-  if (allowedTypes.includes(file.mimetype)) {
+  // Vérifier également l'extension du fichier comme fallback
+  const fileExtension = path.extname(file.originalname).toLowerCase();
+  const validExtensions = ['.xls', '.xlsx', '.xlsm', '.xlsb'];
+  
+  if (allowedTypes.includes(file.mimetype) || validExtensions.includes(fileExtension)) {
     cb(null, true);
   } else {
-    cb(new Error('Format de fichier non pris en charge. Veuillez télécharger un fichier Excel (.xls ou .xlsx).'), false);
+    cb(new Error(`Format de fichier non pris en charge: ${file.mimetype}. Veuillez télécharger un fichier Excel (.xls ou .xlsx).`), false);
   }
 };
 
+// Augmentation de la limite à 50 MB pour les fichiers volumineux
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 } // Limite à 10MB
+  limits: { 
+    fileSize: 50 * 1024 * 1024, // 50 MB
+    fieldSize: 25 * 1024 * 1024  // 25 MB pour les champs de formulaire
+  }
 });
 
 /**
@@ -61,8 +74,17 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
       });
     }
     
-    // Analyser le fichier Excel pour obtenir les informations de base
-    const fileInfo = excelService.parseExcelFile(req.file.path);
+    // Vérifier que le fichier est accessible
+    if (!fs.existsSync(req.file.path)) {
+      return res.status(500).json({
+        success: false,
+        message: 'Erreur lors de l\'enregistrement du fichier sur le serveur.'
+      });
+    }
+    
+    // Analyser seulement les informations de base du fichier (sans charger toutes les données)
+    // afin d'optimiser pour les fichiers volumineux
+    const fileInfo = await excelService.parseExcelFileHeaders(req.file.path);
     
     // Enregistrer les informations du fichier dans la base de données
     const file = new File({
@@ -77,6 +99,11 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
     
     await file.save();
     
+    // Lancer l'analyse complète des données en arrière-plan
+    // pour ne pas bloquer la réponse au client
+    excelService.prepareFileForProcessing(file._id)
+      .catch(error => console.error('Erreur lors de la préparation du fichier:', error));
+    
     res.status(201).json({
       success: true,
       message: 'Fichier téléchargé avec succès.',
@@ -90,6 +117,21 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
       }
     });
   } catch (error) {
+    console.error('Erreur upload:', error);
+    
+    // Nettoyer le fichier en cas d'erreur
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    
+    // Personnaliser le message d'erreur pour certains types d'erreurs
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        success: false,
+        message: 'Le fichier est trop volumineux. La taille maximale autorisée est de 50 MB.'
+      });
+    }
+    
     next(error);
   }
 });
@@ -148,9 +190,7 @@ router.get('/', async (req, res, next) => {
 });
 
 /**
- * @route   GET /api/files/:id
- * @desc    Obtenir les détails d'un fichier spécifique
- * @access  Public
+ * Autres routes pour la gestion des fichiers
  */
 router.get('/:id', async (req, res, next) => {
   try {
@@ -183,11 +223,6 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-/**
- * @route   PUT /api/files/:id/column
- * @desc    Sélectionner une colonne à analyser
- * @access  Public
- */
 router.put('/:id/column', async (req, res, next) => {
   try {
     const { selectedColumn } = req.body;
@@ -223,37 +258,14 @@ router.put('/:id/column', async (req, res, next) => {
     file.processingStartedAt = new Date();
     await file.save();
     
-    // Commencer à traiter le fichier en arrière-plan
-    // Dans une implémentation réelle, vous utiliseriez une file d'attente comme Bull ou une fonction asynchrone
-    // Pour cet exemple, on simule juste la réponse
-    setTimeout(async () => {
-      try {
-        // Extraire les valeurs de la colonne sélectionnée
-        const columnData = excelService.extractColumnData(file.path, selectedColumn);
-        
-        // Créer des entrées de résultat pour chaque valeur de la colonne
-        await Promise.all(columnData.map(item => {
-          return new MatchResult({
-            file: file._id,
-            originalValue: item.value,
-            rowIndex: item.rowIndex,
-            status: 'pending'
-          }).save();
-        }));
-        
-        // Marquer le fichier comme traité
-        file.status = 'completed';
-        file.processingCompletedAt = new Date();
-        await file.save();
-      } catch (error) {
-        console.error('Erreur lors du traitement du fichier:', error);
-        
-        // Marquer le fichier en erreur
+    // Démarrer le traitement des données de la colonne en arrière-plan
+    excelService.processColumnData(file._id, selectedColumn)
+      .catch(error => {
+        console.error('Erreur lors du traitement de la colonne:', error);
         file.status = 'error';
         file.errorMessage = error.message;
-        await file.save();
-      }
-    }, 500);
+        file.save();
+      });
     
     res.status(200).json({
       success: true,
@@ -269,11 +281,6 @@ router.put('/:id/column', async (req, res, next) => {
   }
 });
 
-/**
- * @route   DELETE /api/files/:id
- * @desc    Supprimer un fichier
- * @access  Public
- */
 router.delete('/:id', async (req, res, next) => {
   try {
     const file = await File.findById(req.params.id);
@@ -305,11 +312,6 @@ router.delete('/:id', async (req, res, next) => {
   }
 });
 
-/**
- * @route   GET /api/files/:id/export
- * @desc    Exporter les résultats d'un fichier
- * @access  Public
- */
 router.get('/:id/export', async (req, res, next) => {
   try {
     // Options d'exportation
@@ -332,21 +334,73 @@ router.get('/:id/export', async (req, res, next) => {
     // Récupérer tous les résultats associés au fichier
     const results = await MatchResult.find({ file: file._id }).sort({ rowIndex: 1 });
     
-    // Exporter les résultats
-    const exportInfo = excelService.exportResults(results, options);
+    if (results.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Aucun résultat disponible pour ce fichier.'
+      });
+    }
     
-    // Envoyer le fichier en réponse
-    res.download(exportInfo.path, exportInfo.fileName, (err) => {
-      if (err) {
-        next(err);
-      } else {
-        // Nettoyer le fichier après l'envoi (optionnel)
-        // Vous pourriez vouloir conserver les exports pour un certain temps
-        // setTimeout(() => {
-        //   if (fs.existsSync(exportInfo.path)) {
-        //     fs.unlinkSync(exportInfo.path);
-        //   }
-        // }, 60000); // Supprime après 1 minute
+    // Utiliser une méthode d'export optimisée pour les grands volumes de données
+    try {
+      const exportInfo = await excelService.exportLargeResults(results, options);
+      
+      // Envoyer le fichier en réponse
+      res.download(exportInfo.path, exportInfo.fileName, (err) => {
+        if (err) {
+          next(err);
+        } else {
+          // Nettoyer le fichier automatiquement après 1 heure
+          setTimeout(() => {
+            if (fs.existsSync(exportInfo.path)) {
+              fs.unlinkSync(exportInfo.path);
+            }
+          }, 3600000);
+        }
+      });
+    } catch (exportError) {
+      console.error('Erreur lors de l\'export:', exportError);
+      return res.status(500).json({
+        success: false,
+        message: 'Erreur lors de l\'export des résultats: ' + exportError.message
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:id/status', async (req, res, next) => {
+  try {
+    const file = await File.findById(req.params.id);
+    
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: 'Fichier non trouvé.'
+      });
+    }
+    
+    // Si le fichier est en cours de traitement, obtenir des statistiques
+    let processedCount = 0;
+    if (file.status === 'processing' && file.selectedColumn) {
+      processedCount = await MatchResult.countDocuments({ 
+        file: file._id, 
+        status: { $ne: 'pending' } 
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        id: file._id,
+        status: file.status,
+        progress: file.rowCount > 0 ? Math.floor((processedCount / file.rowCount) * 100) : 0,
+        processedCount,
+        totalCount: file.rowCount,
+        startedAt: file.processingStartedAt,
+        completedAt: file.processingCompletedAt,
+        errorMessage: file.errorMessage
       }
     });
   } catch (error) {
